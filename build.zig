@@ -19,4 +19,5 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("rc.zig"),
     });
     test_step.dependOn(&b.addRunArtifact(rc_test).step);
+    b.installArtifact(rc_test);
 }

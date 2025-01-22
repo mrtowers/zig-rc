@@ -11,7 +11,7 @@ pub fn Rc(comptime T: type) type {
 
         const Self = @This();
 
-        /// caller owns value and must free it with allocator
+        /// caller owns value and must free it with deref()
         pub fn init(allocator: Allocator, value: T) !*Self {
             var obj = try allocator.create(Self);
             obj.refs = 1;
@@ -20,12 +20,15 @@ pub fn Rc(comptime T: type) type {
             return obj;
         }
 
+        /// use when adding to other struct or taking ownership, increments reference couny
         pub fn ref(self: *Self) *Self {
             self.refs += 1;
             return self;
         }
 
+        /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
+            if (self.refs == 0) return true;
             self.refs -= 1;
             if (self.refs <= 0) {
                 self.allocator.destroy(self);
@@ -46,7 +49,7 @@ pub fn RcThreadSafe(comptime T: type) type {
 
         const Self = @This();
 
-        /// caller owns value and must free it with allocator
+        /// caller owns value and must free it with deref()
         pub fn init(allocator: Allocator, value: T) !*Self {
             var obj = try allocator.create(Self);
             obj.refs = 1;
@@ -59,32 +62,32 @@ pub fn RcThreadSafe(comptime T: type) type {
         /// use when adding to other struct or taking ownership, increments reference couny
         pub fn ref(self: *Self) *Self {
             self.lock.lock();
-            defer self.lock.unlock();
-
+            defer {
+                self.lock.unlock();
+            }
             self.refs += 1;
             return self;
         }
 
-        /// use when not used, decreases reference counting, frees data when refs == 0, returns true if freed
+        /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
             self.lock.lock();
-            defer self.lock.unlock();
-
-            if (self.refs <= 0) {
-                return true;
-            }
-
             self.refs -= 1;
+
             if (self.refs <= 0) {
+                self.lock.unlock();
                 self.allocator.destroy(self);
                 return true;
             }
+
+            self.lock.unlock();
+
             return false;
         }
     };
 }
 
-test {
+test "Rc" {
     const testing = std.testing;
     var obj = try Rc(u8).init(testing.allocator, 4);
     {
@@ -100,4 +103,40 @@ test {
     }
     try testing.expectEqual(obj.refs, 1);
     try testing.expectEqual(obj.deref(), true);
+}
+
+test "RcThreadSafe" {
+    const testing = std.testing;
+    const Thread = std.Thread;
+
+    var obj = try RcThreadSafe(u8).init(testing.allocator, 42);
+    _ = &obj;
+
+    // Funkcja wykonywana przez wątki
+
+    // Tworzenie wątków
+    var threads: [4]Thread = undefined;
+    for (&threads) |*thread| {
+        thread.* = try Thread.spawn(.{}, thread_func, .{obj});
+    }
+
+    // Oczekiwanie na zakończenie pracy wątków
+    for (&threads) |*thread| {
+        thread.join();
+    }
+
+    // Sprawdzenie, czy licznik referencji wrócił do 1
+    try testing.expect(obj.refs == 1);
+    try testing.expect(obj.deref());
+}
+
+/// test func
+fn thread_func(arg: *RcThreadSafe(u8)) !void {
+    const testing = std.testing;
+    const local_obj = arg.ref(); // Zwiększ licznik referencji
+    defer _ = local_obj.deref(); // Zmniejsz po zakończeniu pracy
+
+    // Przykładowa operacja
+    const value = local_obj.value;
+    try testing.expect(value == 42);
 }
