@@ -36,6 +36,11 @@ pub fn Rc(comptime T: type) type {
             }
             return false;
         }
+
+        /// immediately frees object
+        pub fn destroy(self: *const Self) void {
+            self.allocator.destroy(self);
+        }
     };
 }
 
@@ -84,6 +89,11 @@ pub fn RcThreadSafe(comptime T: type) type {
 
             return false;
         }
+
+        /// immediately frees object
+        pub fn destroy(self: *const Self) void {
+            self.allocator.destroy(self);
+        }
     };
 }
 
@@ -103,6 +113,8 @@ test "Rc" {
     }
     try testing.expectEqual(obj.refs, 1);
     try testing.expectEqual(obj.deref(), true);
+    obj = try Rc(u8).init(testing.allocator, 5);
+    obj.destroy();
 }
 
 test "RcThreadSafe" {
@@ -112,31 +124,26 @@ test "RcThreadSafe" {
     var obj = try RcThreadSafe(u8).init(testing.allocator, 42);
     _ = &obj;
 
-    // Funkcja wykonywana przez wątki
-
-    // Tworzenie wątków
     var threads: [4]Thread = undefined;
     for (&threads) |*thread| {
         thread.* = try Thread.spawn(.{}, thread_func, .{obj});
     }
 
-    // Oczekiwanie na zakończenie pracy wątków
     for (&threads) |*thread| {
         thread.join();
     }
 
-    // Sprawdzenie, czy licznik referencji wrócił do 1
     try testing.expect(obj.refs == 1);
     try testing.expect(obj.deref());
+    obj = try RcThreadSafe(u8).init(testing.allocator, 5);
+    obj.destroy();
 }
 
-/// test func
 fn thread_func(arg: *RcThreadSafe(u8)) !void {
     const testing = std.testing;
-    const local_obj = arg.ref(); // Zwiększ licznik referencji
-    defer _ = local_obj.deref(); // Zmniejsz po zakończeniu pracy
+    const local_obj = arg.ref();
+    defer _ = local_obj.deref();
 
-    // Przykładowa operacja
     const value = local_obj.value;
     try testing.expect(value == 42);
 }
