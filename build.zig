@@ -14,8 +14,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
+    //steps
     const test_step = b.step("test", "run all unit tests");
+    const coverage_step = b.step("coverage", "run the code coverage analysis");
 
     const rc_test = b.addTest(.{
         .name = "rc_test",
@@ -24,7 +25,22 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("rc.zig"),
     });
     test_step.dependOn(&b.addRunArtifact(rc_test).step);
-    b.installArtifact(rc_test);
+
+    const kcov_bin = b.findProgram(&.{"kcov"}, &.{ "/bin", "/usr/bin" }) catch |e| {
+        std.debug.panic("cannot find kcov binary: {}", .{e});
+    };
+
+    const coverage_run = std.Build.Step.Run.create(b, "coverage");
+    coverage_run.addArg(kcov_bin);
+    coverage_run.addArg("--include-path=.");
+    const coverage_output_dir = coverage_run.addOutputDirectoryArg("cov");
+    coverage_run.addArtifactArg(rc_test);
+    const coverage_install_dir = b.addInstallDirectory(.{
+        .source_dir = coverage_output_dir,
+        .install_dir = .{ .custom = "coverage_out" },
+        .install_subdir = "",
+    });
+    coverage_step.dependOn(&coverage_install_dir.step);
 }
 
 fn versionEql(lhs: std.SemanticVersion, rhs: std.SemanticVersion) bool {
