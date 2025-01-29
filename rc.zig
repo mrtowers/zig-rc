@@ -39,7 +39,7 @@ pub fn Generate(comptime T: type, comptime options: Options) type {
             return obj;
         }
 
-        /// use when adding to other struct or taking ownership, increments reference couny
+        /// use when adding to other struct or taking ownership, increments reference count
         pub fn ref(self: *Self) *Self {
             if (options.thread_safe) {
                 self.lock.lock();
