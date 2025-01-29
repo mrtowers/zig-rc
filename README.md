@@ -34,13 +34,13 @@ your_app.root_module.addImport("rc", rc.module("rc"));
 
 ```zig
 const std = @import("std");
-const Rc = @import("rc").Rc;
+const Rc = @import("rc").Generate(i32, .{});
 
 pub fn main() !void {
     var allocator = std.heap.page_allocator;
 
     // Create a new reference-counted object
-    var ptr = try Rc(i32).init(allocator, 1234);
+    var ptr = try Rc.init(allocator, 1234);
 
     // Access the value
     std.debug.print("Value: {}\n", .{ptr.value});
@@ -52,8 +52,8 @@ pub fn main() !void {
     std.debug.print("Cloned value: {}\n", .{ptr_clone.value});
 
     // Release references (automatically decrements the count)
-    ptr.deref();
-    ptr_clone.deref();
+    _ = ptr.deref();
+    _ = ptr_clone.deref();
 }
 ```
 
