@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const required_zig_version = std.SemanticVersion.parse("0.13.0") catch unreachable;
+const required_zig_version = std.SemanticVersion.parse("0.14.0") catch unreachable;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
