@@ -82,13 +82,13 @@ test "Rc" {
     const Rc = Generate(u8, .{});
     var obj = try Rc.init(testing.allocator, 4);
     {
-        var obj_list = std.ArrayList(*Rc).init(testing.allocator);
+        var obj_list = try std.ArrayList(*Rc).initCapacity(testing.allocator, 0);
         defer {
             for (obj_list.items) |v| _ = v.deref();
-            obj_list.deinit();
+            obj_list.deinit(testing.allocator);
         }
-        try obj_list.append(obj.ref());
-        try obj_list.append(try Rc.init(testing.allocator, 7));
+        try obj_list.append(testing.allocator, obj.ref());
+        try obj_list.append(testing.allocator, try Rc.init(testing.allocator, 7));
         try testing.expectEqual(obj.refs, 2);
         try testing.expectEqual(obj_list.items[1].refs, 1);
     }
