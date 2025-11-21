@@ -5,8 +5,12 @@ const Allocator = mem.Allocator;
 
 /// generates reference counting struct depending on options
 pub fn Rc(comptime T: type) type {
-    const ExtraOptions = struct {
+    const Callbacks = struct {
         destroyFn: ?*const fn (Allocator, *const T) void = null,
+    };
+
+    const ExtraOptions = struct {
+        callbacks: Callbacks = .{},
     };
 
     return struct {
@@ -14,7 +18,7 @@ pub fn Rc(comptime T: type) type {
         refs: usize,
         value: T,
         lock: if (options.thread_safe) std.Thread.Mutex else void,
-        destroyFn: ?*const fn (Allocator, *const T) void,
+        callbacks: Callbacks,
 
         const Self = @This();
 
@@ -24,7 +28,7 @@ pub fn Rc(comptime T: type) type {
             obj.refs = 1;
             obj.value = value;
             obj.allocator = allocator;
-            obj.destroyFn = extra.destroyFn;
+            obj.callbacks = extra.callbacks;
             if (options.thread_safe) obj.lock = std.Thread.Mutex{};
             return obj;
         }
@@ -48,7 +52,7 @@ pub fn Rc(comptime T: type) type {
 
             if (self.refs <= 0) {
                 if (options.thread_safe) self.lock.unlock();
-                self.destroy();
+                self.deinit();
                 return true;
             }
 
@@ -58,8 +62,8 @@ pub fn Rc(comptime T: type) type {
         }
 
         /// immediately frees object, runs destroyFn if not null
-        pub fn destroy(self: *const Self) void {
-            if (self.destroyFn) |f| {
+        pub fn deinit(self: *const Self) void {
+            if (self.callbacks.destroyFn) |f| {
                 f(self.allocator, &self.value);
             }
             self.allocator.destroy(self);
@@ -84,7 +88,7 @@ test "Rc" {
     try testing.expectEqual(obj.refs, 1);
     try testing.expectEqual(obj.deref(), true);
     obj = try Rc(u8).init(testing.allocator, 5, .{});
-    obj.destroy();
+    obj.deinit();
 }
 
 test "DestroyFn" {
@@ -103,13 +107,13 @@ test "DestroyFn" {
     };
 
     var ptr = try Rc(User).init(allocator, User{ .name = try allocator.dupe(u8, "Dawid") }, .{
-        .destroyFn = User.destroyFn,
+        .callbacks = .{ .destroyFn = User.destroyFn },
     });
     try testing.expect(std.mem.eql(u8, "Dawid", ptr.value.name));
     const destroyed = ptr.deref();
     try testing.expect(destroyed);
     try testing.expect(User.destroyed);
     const ptr2 = try Rc(u8).init(allocator, 0, .{});
-    try testing.expect(ptr2.destroyFn == null);
+    try testing.expect(ptr2.callbacks.destroyFn == null);
     _ = ptr2.deref();
 }
