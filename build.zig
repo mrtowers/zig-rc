@@ -6,14 +6,14 @@ const required_zig_version = std.SemanticVersion.parse("0.15.0") catch unreachab
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const thread_safe = b.option(bool, "thread_safe", "enables thread safety") orelse false;
+    const auto_deinit = b.option(bool, "auto_deinit", "enables auto calling `deinit` method on freed objects. Defaults to `true`") orelse true;
 
     if (comptime !versionEql(required_zig_version, builtin.zig_version)) {
         @compileError(std.fmt.comptimePrint("zig version required for zig-rc is {any} but current is {any}", .{ required_zig_version, builtin.zig_version }));
     }
 
     const build_options = b.addOptions();
-    build_options.addOption(bool, "thread_safe", thread_safe);
+    build_options.addOption(bool, "auto_deinit", auto_deinit);
 
     const rc_mod = b.addModule("rc", .{
         .root_source_file = b.path("rc.zig"),
