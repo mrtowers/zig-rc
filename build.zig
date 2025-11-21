@@ -6,14 +6,22 @@ const required_zig_version = std.SemanticVersion.parse("0.15.0") catch unreachab
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const thread_safe = b.option(bool, "thread_safe", "enables thread safety") orelse false;
+
     if (comptime !versionEql(required_zig_version, builtin.zig_version)) {
         @compileError(std.fmt.comptimePrint("zig version required for zig-rc is {any} but current is {any}", .{ required_zig_version, builtin.zig_version }));
     }
+
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "thread_safe", thread_safe);
+
     const rc_mod = b.addModule("rc", .{
         .root_source_file = b.path("rc.zig"),
         .target = target,
         .optimize = optimize,
     });
+    rc_mod.addOptions("build_options", build_options);
+
     //steps
     const test_step = b.step("test", "run all unit tests");
     const coverage_step = b.step("coverage", "run the code coverage analysis");
@@ -31,8 +39,10 @@ pub fn build(b: *std.Build) void {
     const coverage_run = std.Build.Step.Run.create(b, "coverage");
     coverage_run.addArg(kcov_bin);
     coverage_run.addArg("--include-path=.");
+
     const coverage_output_dir = coverage_run.addOutputDirectoryArg("cov");
     coverage_run.addArtifactArg(rc_test);
+
     const coverage_install_dir = b.addInstallDirectory(.{
         .source_dir = coverage_output_dir,
         .install_dir = .{ .custom = "coverage_out" },
