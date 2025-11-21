@@ -1,15 +1,15 @@
 const std = @import("std");
 const mem = std.mem;
-const options = @import("build_options");
+const build_options = @import("build_options");
 const Allocator = mem.Allocator;
 
 /// generates reference counting struct depending on options
 pub fn Rc(comptime T: type) type {
     const Callbacks = struct {
-        destroyFn: ?*const fn (Allocator, *const T) void = null,
+        destroyFn: ?*const fn (*T) void = null,
     };
 
-    const ExtraOptions = struct {
+    const Options = struct {
         callbacks: Callbacks = .{},
     };
 
@@ -17,54 +17,47 @@ pub fn Rc(comptime T: type) type {
         allocator: Allocator,
         refs: usize,
         value: T,
-        lock: if (options.thread_safe) std.Thread.Mutex else void,
         callbacks: Callbacks,
 
         const Self = @This();
 
         /// caller owns value and must free it with deref()
-        pub fn init(allocator: Allocator, value: T, extra: ExtraOptions) !*Self {
+        pub fn init(allocator: Allocator, value: T, extra: Options) !*Self {
             var obj = try allocator.create(Self);
             obj.refs = 1;
             obj.value = value;
             obj.allocator = allocator;
             obj.callbacks = extra.callbacks;
-            if (options.thread_safe) obj.lock = std.Thread.Mutex{};
             return obj;
         }
 
         /// use when adding to other struct or taking ownership, increments reference count
         pub fn ref(self: *Self) *Self {
-            if (options.thread_safe) {
-                self.lock.lock();
-                defer {
-                    self.lock.unlock();
-                }
-            }
             self.refs += 1;
             return self;
         }
 
         /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
-            if (options.thread_safe) self.lock.lock();
             self.refs -= 1;
 
             if (self.refs <= 0) {
-                if (options.thread_safe) self.lock.unlock();
                 self.deinit();
                 return true;
             }
-
-            if (options.thread_safe) self.lock.unlock();
 
             return false;
         }
 
         /// immediately frees object, runs destroyFn if not null
-        pub fn deinit(self: *const Self) void {
+        pub fn deinit(self: *Self) void {
+            if (build_options.auto_deinit) {
+                if (std.meta.hasMethod(@TypeOf(self.value), "deinit")) {
+                    self.value.deinit();
+                }
+            }
             if (self.callbacks.destroyFn) |f| {
-                f(self.allocator, &self.value);
+                f(&self.value);
             }
             self.allocator.destroy(self);
         }
@@ -91,29 +84,38 @@ test "Rc" {
     obj.deinit();
 }
 
-test "DestroyFn" {
+test "destroyFn" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
     const User = struct {
+        allocator: Allocator,
         name: []u8,
 
         var destroyed = false;
 
-        fn destroyFn(ally: Allocator, user: *const @This()) void {
-            ally.free(user.name);
+        fn destroyFn(user: *const @This()) void {
+            user.allocator.free(user.name);
             destroyed = true;
         }
     };
 
-    var ptr = try Rc(User).init(allocator, User{ .name = try allocator.dupe(u8, "Dawid") }, .{
+    const user = User{
+        .name = try allocator.dupe(u8, "user"),
+        .allocator = allocator,
+    };
+    var ptr = try Rc(User).init(allocator, user, .{
         .callbacks = .{ .destroyFn = User.destroyFn },
     });
-    try testing.expect(std.mem.eql(u8, "Dawid", ptr.value.name));
+    try testing.expect(std.mem.eql(u8, "user", ptr.value.name));
     const destroyed = ptr.deref();
     try testing.expect(destroyed);
     try testing.expect(User.destroyed);
     const ptr2 = try Rc(u8).init(allocator, 0, .{});
     try testing.expect(ptr2.callbacks.destroyFn == null);
     _ = ptr2.deref();
+}
+
+test "auto deinit" {
+    //TODO
 }
