@@ -48,7 +48,7 @@ pub fn Rc(comptime T: type) type {
         fn destroy(self: *Self) void {
             if (self.options.auto_deinit) {
                 if (std.meta.hasMethod(@TypeOf(self.value), "deinit")) {
-                    self.value.deinit();
+                    _ = self.value.deinit();
                 }
             }
         }
@@ -180,4 +180,17 @@ test "Arc" {
     try testing.expectEqual(obj.deref(), true);
     obj = try Arc(u8).init(testing.allocator, 5, .{});
     obj.deinit();
+}
+
+test "deinit with return type" {
+    const testing = std.testing;
+    const User = struct {
+        pub fn deinit(self: *const @This()) u8 {
+            _ = self;
+            return 0;
+        }
+    };
+
+    var ptr = try Rc(User).init(testing.allocator, User{}, .{ .auto_deinit = true });
+    defer _ = ptr.deref();
 }
