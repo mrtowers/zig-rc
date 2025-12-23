@@ -53,7 +53,7 @@ pub fn Rc(comptime T: type) type {
             }
         }
 
-        /// immediately frees object, runs destroyFn if not null
+        /// immediately frees object
         pub fn deinit(self: *Self) void {
             self.destroy();
             self.allocator.destroy(self);
@@ -61,13 +61,15 @@ pub fn Rc(comptime T: type) type {
     };
 }
 
-fn Arc(comptime T: type) type {
+/// Atomic Rc
+pub fn Arc(comptime T: type) type {
     return struct {
         lock: std.Thread.Mutex = .{},
         rc: *Rc(T),
 
         const Self = @This();
 
+        /// caller owns value and must free it with deref()
         pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
             const obj = try allocator.create(Self);
             obj.* = Self{
@@ -77,6 +79,7 @@ fn Arc(comptime T: type) type {
             return obj;
         }
 
+        /// use when adding to other struct or taking ownership, increments reference count
         pub fn ref(self: *Self) *Self {
             self.lock.lock();
             defer self.lock.unlock();
@@ -85,6 +88,7 @@ fn Arc(comptime T: type) type {
             return self;
         }
 
+        /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
             self.lock.lock();
 
@@ -99,6 +103,7 @@ fn Arc(comptime T: type) type {
             return false;
         }
 
+        /// immediately frees object
         pub fn deinit(self: *Self) void {
             const allocator = self.rc.allocator;
             self.rc.deinit();
