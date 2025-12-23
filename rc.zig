@@ -1,19 +1,11 @@
 const std = @import("std");
 const mem = std.mem;
-const build_options = @import("build_options");
 const Allocator = mem.Allocator;
 
-fn Callbacks(comptime T: type) type {
-    return struct {
-        destroyFn: ?*const fn (*T) void = null,
-    };
-}
-
-fn Options(comptime T: type) type {
-    return struct {
-        callbacks: Callbacks(T) = .{},
-    };
-}
+const Options = struct {
+    /// automaticaly runs `deinit` method on underlying value
+    auto_deinit: bool = false,
+};
 
 /// generates reference counting struct depending on options
 pub fn Rc(comptime T: type) type {
@@ -21,17 +13,17 @@ pub fn Rc(comptime T: type) type {
         allocator: Allocator,
         refs: usize,
         value: T,
-        callbacks: Callbacks(T),
+        options: Options,
 
         const Self = @This();
 
         /// caller owns value and must free it with deref()
-        pub fn init(allocator: Allocator, value: T, extra: Options(T)) !*Self {
+        pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
             var obj = try allocator.create(Self);
             obj.refs = 1;
             obj.value = value;
             obj.allocator = allocator;
-            obj.callbacks = extra.callbacks;
+            obj.options = options;
             return obj;
         }
 
@@ -54,13 +46,10 @@ pub fn Rc(comptime T: type) type {
         }
 
         fn destroy(self: *Self) void {
-            if (build_options.auto_deinit) {
+            if (self.options.auto_deinit) {
                 if (std.meta.hasMethod(@TypeOf(self.value), "deinit")) {
                     self.value.deinit();
                 }
-            }
-            if (self.callbacks.destroyFn) |f| {
-                f(&self.value);
             }
         }
 
@@ -79,10 +68,10 @@ fn Arc(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator, value: T, extra: Options(T)) !*Self {
+        pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
             const obj = try allocator.create(Self);
             obj.* = Self{
-                .rc = try Rc(T).init(allocator, value, extra),
+                .rc = try Rc(T).init(allocator, value, options),
             };
 
             return obj;
@@ -138,7 +127,7 @@ test "Rc" {
     obj.deinit();
 }
 
-test "destroyFn" {
+test "auto_deinit" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
@@ -148,7 +137,7 @@ test "destroyFn" {
 
         var destroyed = false;
 
-        fn destroyFn(user: *const @This()) void {
+        pub fn deinit(user: *const @This()) void {
             user.allocator.free(user.name);
             destroyed = true;
         }
@@ -158,16 +147,14 @@ test "destroyFn" {
         .name = try allocator.dupe(u8, "user"),
         .allocator = allocator,
     };
-    var ptr = try Rc(User).init(allocator, user, .{
-        .callbacks = .{ .destroyFn = User.destroyFn },
-    });
+    var ptr = try Rc(User).init(allocator, user, .{ .auto_deinit = true });
     try testing.expect(std.mem.eql(u8, "user", ptr.value.name));
     const destroyed = ptr.deref();
     try testing.expect(destroyed);
     try testing.expect(User.destroyed);
     const ptr2 = try Rc(u8).init(allocator, 0, .{});
-    try testing.expect(ptr2.callbacks.destroyFn == null);
-    _ = ptr2.deref();
+    try testing.expect(ptr2.options.auto_deinit == false);
+    try testing.expect(ptr2.deref());
 }
 
 test "Arc" {
@@ -188,8 +175,4 @@ test "Arc" {
     try testing.expectEqual(obj.deref(), true);
     obj = try Arc(u8).init(testing.allocator, 5, .{});
     obj.deinit();
-}
-
-test "auto deinit" {
-    //TODO
 }
