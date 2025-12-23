@@ -34,26 +34,33 @@ your_app.root_module.addImport("rc", rc.module("rc"));
 
 ```zig
 const std = @import("std");
-const Rc = @import("rc").Generate(i32, .{});
+const rc = @import("rc");
+const Allocator = std.mem.Allocator;
+
+const User = struct {
+    name: []u8,
+    allocator: Allocator,
+
+    pub fn deinit(self: *const User) u8 {
+        self.allocator.free(self.name);
+        return 0;
+    }
+};
 
 pub fn main() !void {
-    var allocator = std.heap.page_allocator;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
 
-    // Create a new reference-counted object
-    var ptr = try Rc.init(allocator, 1234);
-
-    // Access the value
-    std.debug.print("Value: {}\n", .{ptr.value});
-
-    // Clone the pointer (increments the reference count)
-    var ptr_clone = ptr.ref();
-
-    // Both pointers are valid
-    std.debug.print("Cloned value: {}\n", .{ptr_clone.value});
-
-    // Release references (automatically decrements the count)
+    var ptr = try rc.Rc(User).init(gpa.allocator(), User{
+        .allocator = gpa.allocator(),
+        .name = try gpa.allocator().dupe(u8, "some user"),
+    }, .{
+        .auto_deinit = true,
+    });
+    var ptr2 = ptr.ref();
     _ = ptr.deref();
-    _ = ptr_clone.deref();
+    _ = ptr2.deref(); // object cleaned up here
+
 }
 ```
 
