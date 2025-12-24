@@ -19,11 +19,12 @@ pub fn build(b: *std.Build) void {
 
     //steps
     const test_step = b.step("test", "run all unit tests");
-    const coverage_step = b.step("coverage", "run the code coverage analysis");
+    const coverage_step = b.step("cov", "run the code coverage analysis");
 
     const rc_test = b.addTest(.{
         .name = "rc_test",
         .root_module = rc_mod,
+        .use_llvm = true, //using llvm for test because of weak DWARF format in zig 0.15.2 self backend
     });
     test_step.dependOn(&b.addRunArtifact(rc_test).step);
 
