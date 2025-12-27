@@ -42,7 +42,7 @@ const User = struct {
     name: []u8,
     allocator: Allocator,
 
-    pub fn deinit(self: *const User) u8 {
+    pub fn deinit(self: *const User) u8 { //runned automatically by `auto_deinit`
         self.allocator.free(self.name);
         return 0;
     }
