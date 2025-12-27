@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 
 const Options = struct {
@@ -35,6 +36,7 @@ pub fn Rc(comptime T: type) type {
 
         /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
+            assert(self.refs != 0);
             self.refs -= 1;
 
             if (self.refs <= 0) {
@@ -63,7 +65,7 @@ pub fn Rc(comptime T: type) type {
             try writer.print("Rc({}): {any}", .{ T, self.value });
         }
 
-        /// immediately frees object
+        /// immediately frees object, not recommended, use deref() instead
         pub fn deinit(self: *Self) void {
             self.destroy();
             self.allocator.destroy(self);
@@ -101,6 +103,7 @@ pub fn Arc(comptime T: type) type {
         /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
             self.lock.lock();
+            assert(self.rc.refs != 0);
 
             const allocator = self.rc.allocator;
 
@@ -123,7 +126,7 @@ pub fn Arc(comptime T: type) type {
             try writer.print("Arc({}): {any}", .{ T, self.rc.value });
         }
 
-        /// immediately frees object
+        /// immediately frees object, not recommended, use deref() instead
         pub fn deinit(self: *Self) void {
             const allocator = self.rc.allocator;
             self.rc.deinit();
