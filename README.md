@@ -8,8 +8,9 @@ A simple and efficient implementation of a reference counting smart pointer for 
 ## Features
 
 - **Automatic Memory Management**: Simplifies memory handling by automatically freeing unused resources.
-- **Thread-Safe (Optional)**: Includes optional support for atomic reference counting for multithreaded applications.
+- **Thread-Safe**: Includes support for atomic reference counting for multithreaded applications via Arc.
 - **Lightweight**: Designed to be minimal and efficient.
+- **Auto deinit**: Rc and Arc support an optional auto_deinit mode. When enabled, the managed value is automatically deinitialized on the final destroy. If the wrapped type defines a deinit() method, it will be called before the memory is released.
 
 ## Installation
 
