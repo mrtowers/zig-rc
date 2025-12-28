@@ -12,47 +12,75 @@ const Options = struct {
 pub fn Rc(comptime T: type) type {
     return struct {
         allocator: Allocator,
-        refs: usize,
-        value: *T,
+        strong_count: usize = 1,
+        weak_count: usize = 0,
+        value: ?*T,
         options: Options,
 
         const Self = @This();
 
         /// caller owns value and must free it with deref()
         pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
-            var obj = try allocator.create(Self);
-            obj.refs = 1;
-            obj.value = try allocator.create(T);
-            obj.value.* = value;
-            obj.allocator = allocator;
-            obj.options = options;
+            const obj = try allocator.create(Self);
+            const value_obj = try allocator.create(T);
+            value_obj.* = value;
+
+            obj.* = .{
+                .allocator = allocator,
+                .value = value_obj,
+                .options = options,
+            };
+
             return obj;
         }
 
         /// use when adding to other struct or taking ownership, increments reference count
         pub fn ref(self: *Self) *Self {
-            self.refs += 1;
+            self.strong_count += 1;
             return self;
         }
 
         /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
-            assert(self.refs != 0);
-            self.refs -= 1;
+            assert(self.strong_count != 0);
+            self.strong_count -= 1;
 
-            if (self.refs <= 0) {
-                self.deinit();
+            if (self.strong_count <= 0) {
+                self.destroyValue();
+                if (self.weak_count <= 0) {
+                    self.deinit();
+                }
                 return true;
             }
 
             return false;
         }
 
-        fn destroy(self: *Self) void {
-            if (self.options.auto_deinit) {
-                if (std.meta.hasMethod(@TypeOf(self.value), "deinit")) {
-                    _ = self.value.deinit();
+        fn derefWeak(self: *Self) void {
+            self.weak_count -= 1;
+            if (self.strong_count <= 0 and self.weak_count <= 0) {
+                self.deinit();
+            }
+        }
+
+        /// returns weak reference increasing weak count, dereference with deref()
+        pub fn weak(self: *Self) WeakRc(T) {
+            assert(self.strong_count != 0);
+
+            self.weak_count += 1;
+
+            return WeakRc(T){ .rc = self };
+        }
+
+        fn destroyValue(self: *Self) void {
+            if (self.value) |val| {
+                if (self.options.auto_deinit) {
+                    if (std.meta.hasMethod(T, "deinit")) {
+                        _ = val.deinit();
+                    }
                 }
+                self.allocator.destroy(val);
+                self.value = null;
             }
         }
 
@@ -68,9 +96,38 @@ pub fn Rc(comptime T: type) type {
 
         /// immediately frees object, not recommended, use deref() instead
         pub fn deinit(self: *Self) void {
-            self.destroy();
-            self.allocator.destroy(self.value);
+            self.destroyValue();
             self.allocator.destroy(self);
+        }
+    };
+}
+
+pub fn WeakRc(comptime T: type) type {
+    return struct {
+        rc: *Rc(T),
+
+        const Self = @This();
+
+        /// returns strong Rc reference, dereference with deref()
+        pub fn upgrade(self: *const Self) ?*Rc(T) {
+            if (self.isAlive()) {
+                return self.rc.ref();
+            }
+
+            return null;
+        }
+
+        /// increases weak counter, returns weak reference, dereference with deref()
+        pub fn ref(self: *const Self) WeakRc(T) {
+            self.rc.weak_count += 1;
+        }
+
+        pub fn deref(self: *const Self) void {
+            self.rc.derefWeak();
+        }
+
+        pub fn isAlive(self: *const Self) bool {
+            return self.rc.strong_count > 0;
         }
     };
 }
@@ -105,7 +162,7 @@ pub fn Arc(comptime T: type) type {
         /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) bool {
             self.lock.lock();
-            assert(self.rc.refs != 0);
+            assert(self.rc.strong_count != 0);
 
             const allocator = self.rc.allocator;
 
@@ -148,10 +205,10 @@ test "Rc" {
         }
         try obj_list.append(testing.allocator, obj.ref());
         try obj_list.append(testing.allocator, try Rc(u8).init(testing.allocator, 7, .{}));
-        try testing.expectEqual(obj.refs, 2);
-        try testing.expectEqual(obj_list.items[1].refs, 1);
+        try testing.expectEqual(obj.strong_count, 2);
+        try testing.expectEqual(obj_list.items[1].strong_count, 1);
     }
-    try testing.expectEqual(obj.refs, 1);
+    try testing.expectEqual(obj.strong_count, 1);
     try testing.expectEqual(obj.deref(), true);
     obj = try Rc(u8).init(testing.allocator, 5, .{});
     obj.deinit();
@@ -198,10 +255,10 @@ test "Arc" {
         }
         try obj_list.append(testing.allocator, obj.ref());
         try obj_list.append(testing.allocator, try Arc(u8).init(testing.allocator, 7, .{}));
-        try testing.expectEqual(obj.rc.refs, 2);
-        try testing.expectEqual(obj_list.items[1].rc.refs, 1);
+        try testing.expectEqual(obj.rc.strong_count, 2);
+        try testing.expectEqual(obj_list.items[1].rc.strong_count, 1);
     }
-    try testing.expectEqual(obj.rc.refs, 1);
+    try testing.expectEqual(obj.rc.strong_count, 1);
     try testing.expectEqual(obj.deref(), true);
     obj = try Arc(u8).init(testing.allocator, 5, .{});
     obj.deinit();
