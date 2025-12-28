@@ -13,7 +13,7 @@ pub fn Rc(comptime T: type) type {
     return struct {
         allocator: Allocator,
         refs: usize,
-        value: T,
+        value: *T,
         options: Options,
 
         const Self = @This();
@@ -22,7 +22,8 @@ pub fn Rc(comptime T: type) type {
         pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
             var obj = try allocator.create(Self);
             obj.refs = 1;
-            obj.value = value;
+            obj.value = try allocator.create(T);
+            obj.value.* = value;
             obj.allocator = allocator;
             obj.options = options;
             return obj;
@@ -62,12 +63,13 @@ pub fn Rc(comptime T: type) type {
                 return;
             }
 
-            try writer.print("Rc({}): {any}", .{ T, self.value });
+            try writer.print("Rc({}): {any}", .{ T, self.value.* });
         }
 
         /// immediately frees object, not recommended, use deref() instead
         pub fn deinit(self: *Self) void {
             self.destroy();
+            self.allocator.destroy(self.value);
             self.allocator.destroy(self);
         }
     };
@@ -123,7 +125,7 @@ pub fn Arc(comptime T: type) type {
                 return;
             }
 
-            try writer.print("Arc({}): {any}", .{ T, self.rc.value });
+            try writer.print("Arc({}): {any}", .{ T, self.rc.value.* });
         }
 
         /// immediately frees object, not recommended, use deref() instead
