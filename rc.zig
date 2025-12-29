@@ -40,6 +40,7 @@ pub fn Rc(comptime T: type) type {
             return self;
         }
 
+        //TODO remove from docs `returns true if destroyed`
         /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
         pub fn deref(self: *Self) void {
             assert(self.strong_count != 0);
@@ -117,7 +118,7 @@ pub fn WeakRc(comptime T: type) type {
         pub fn ref(self: *const Self) WeakRc(T) {
             self.rc.weak_count += 1;
 
-            return self;
+            return self.*;
         }
 
         pub fn deref(self: *const Self) void {
@@ -370,7 +371,45 @@ test "format fn on Arc" {
 }
 
 test "WeakRc" {
-    //TODO
+    const testing = std.testing;
+
+    {
+        const ptr = try Rc(i32).init(testing.allocator, 0, .{});
+        defer ptr.deref();
+
+        const weak = ptr.weak();
+        defer weak.deref();
+
+        try testing.expectEqual(1, ptr.strong_count);
+        try testing.expectEqual(1, ptr.weak_count);
+
+        {
+            var weak2 = weak.ref();
+            defer weak2.deref();
+
+            try testing.expectEqual(2, ptr.weak_count);
+        }
+        try testing.expectEqual(1, ptr.weak_count);
+
+        const ptr_ref = weak.upgrade() orelse unreachable;
+        defer ptr_ref.deref();
+
+        try testing.expectEqual(2, ptr.strong_count);
+        try testing.expectEqual(1, ptr.weak_count);
+    }
+
+    const ptr = try Rc(i32).init(testing.allocator, 0, .{});
+    const weak = ptr.weak();
+
+    try testing.expectEqual(1, ptr.weak_count);
+    try testing.expectEqual(1, ptr.strong_count);
+    ptr.deref();
+    try testing.expectEqual(1, ptr.weak_count);
+    try testing.expectEqual(0, ptr.strong_count);
+
+    try testing.expect(weak.upgrade() == null);
+
+    weak.deref();
 }
 test "WeakArc" {
     //TODO
