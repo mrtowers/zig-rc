@@ -40,8 +40,7 @@ pub fn Rc(comptime T: type) type {
             return self;
         }
 
-        //TODO remove from docs `returns true if destroyed`
-        /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
+        /// use when droping ownership, decreases reference counting, frees data when refs == 0
         pub fn deref(self: *Self) void {
             assert(self.strong_count != 0);
             self.strong_count -= 1;
@@ -54,6 +53,7 @@ pub fn Rc(comptime T: type) type {
             }
         }
 
+        /// decreases weak count, destroys self on strong and weak count == 0
         fn derefWeak(self: *Self) void {
             self.weak_count -= 1;
             if (self.strong_count <= 0 and self.weak_count <= 0) {
@@ -70,6 +70,7 @@ pub fn Rc(comptime T: type) type {
             return WeakRc(T){ .rc = self };
         }
 
+        /// destroys T value, if it has deinit method and auto_deinit is enabled it calls deinit()
         fn destroyValue(self: *Self) void {
             if (self.options.auto_deinit) {
                 if (std.meta.hasMethod(T, "deinit")) {
@@ -99,6 +100,7 @@ pub fn Rc(comptime T: type) type {
     };
 }
 
+/// weak pointer to an Rc object
 pub fn WeakRc(comptime T: type) type {
     return struct {
         rc: *Rc(T),
@@ -121,10 +123,12 @@ pub fn WeakRc(comptime T: type) type {
             return self.*;
         }
 
+        /// decreases weak count, destroys object if strong and weak count == 0
         pub fn deref(self: *const Self) void {
             self.rc.derefWeak();
         }
 
+        /// returns if pointer is alive or destroyed
         pub fn isAlive(self: *const Self) bool {
             return self.rc.strong_count > 0;
         }
@@ -158,7 +162,7 @@ pub fn Arc(comptime T: type) type {
             return self;
         }
 
-        /// use when droping ownership, decreases reference counting, frees data when refs == 0, returns true if destroyed
+        /// use when droping ownership, decreases reference counting, frees data when refs == 0
         pub fn deref(self: *Self) void {
             self.lock.lock();
             assert(self.rc.strong_count != 0);
@@ -177,6 +181,7 @@ pub fn Arc(comptime T: type) type {
             self.lock.unlock();
         }
 
+        /// decreases weak count, destroys self on strong and weak count == 0
         fn derefWeak(self: *Self) void {
             self.rc.weak_count -= 1;
             if (self.rc.strong_count <= 0 and self.rc.weak_count <= 0) {
@@ -234,10 +239,12 @@ pub fn WeakArc(comptime T: type) type {
             return self.*;
         }
 
+        /// decreases weak count, destroys object if strong and weak count == 0
         pub fn deref(self: *const Self) void {
             self.arc.derefWeak();
         }
 
+        /// returns if pointer is alive or destroyed
         pub fn isAlive(self: *const Self) bool {
             return self.arc.rc.strong_count > 0;
         }
