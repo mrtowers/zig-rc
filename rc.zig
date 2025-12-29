@@ -338,36 +338,36 @@ test "format fn on Rc" {
     try testing.expectEqualSlices(u8, "Rc(rc.test.format fn on Rc.User): User(user123)", slice2);
 }
 
-// test "format fn on Arc" {
-//     const testing = std.testing;
-//     var writer = std.Io.Writer.Allocating.init(testing.allocator);
+test "format fn on Arc" {
+    const testing = std.testing;
+    var writer = std.Io.Writer.Allocating.init(testing.allocator);
 
-//     const ptr = try Arc(i32).init(testing.allocator, 13, .{});
-//     defer _ = ptr.deref();
+    const ptr = try Arc(i32).init(testing.allocator, 13, .{});
+    defer _ = ptr.deref();
 
-//     try writer.writer.print("{f}", .{ptr});
+    try writer.writer.print("{f}", .{ptr});
 
-//     const slice = try writer.toOwnedSlice();
-//     defer testing.allocator.free(slice);
-//     try testing.expectEqualSlices(u8, "Arc(i32): 13", slice);
+    const slice = try writer.toOwnedSlice();
+    defer testing.allocator.free(slice);
+    try testing.expectEqualSlices(u8, "Arc(i32): 13", slice);
 
-//     const User = struct {
-//         name: []const u8,
+    const User = struct {
+        name: []const u8,
 
-//         pub fn format(self: *const @This(), w: *std.Io.Writer) !void {
-//             try w.print("User({s})", .{self.name});
-//         }
-//     };
+        pub fn format(self: *const @This(), w: *std.Io.Writer) !void {
+            try w.print("User({s})", .{self.name});
+        }
+    };
 
-//     const ptr2 = try Arc(User).init(testing.allocator, .{ .name = "user123" }, .{});
-//     defer _ = ptr2.deref();
+    const ptr2 = try Arc(User).init(testing.allocator, .{ .name = "user123" }, .{});
+    defer _ = ptr2.deref();
 
-//     try writer.writer.print("{f}", .{ptr2});
+    try writer.writer.print("{f}", .{ptr2});
 
-//     const slice2 = try writer.toOwnedSlice();
-//     defer testing.allocator.free(slice2);
-//     try testing.expectEqualSlices(u8, "Arc(rc.test.format fn on Arc.User): User(user123)", slice2);
-// }
+    const slice2 = try writer.toOwnedSlice();
+    defer testing.allocator.free(slice2);
+    try testing.expectEqualSlices(u8, "Arc(rc.test.format fn on Arc.User): User(user123)", slice2);
+}
 
 test "WeakRc" {
     //TODO
