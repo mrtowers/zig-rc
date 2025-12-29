@@ -165,7 +165,7 @@ pub fn Arc(comptime T: type) type {
 
             const allocator = self.rc.allocator;
 
-            const rc_destroyed = self.rc.strong_count == 1;
+            const rc_destroyed = self.rc.strong_count == 1 and self.rc.weak_count == 0;
 
             self.rc.deref();
 
@@ -175,6 +175,22 @@ pub fn Arc(comptime T: type) type {
             }
 
             self.lock.unlock();
+        }
+
+        fn derefWeak(self: *Self) void {
+            self.rc.weak_count -= 1;
+            if (self.rc.strong_count <= 0 and self.rc.weak_count <= 0) {
+                self.deinit();
+            }
+        }
+
+        /// returns weak reference increasing weak count, dereference with deref()
+        pub fn weak(self: *Self) WeakArc(T) {
+            assert(self.rc.strong_count != 0);
+
+            self.rc.weak_count += 1;
+
+            return WeakArc(T){ .arc = self };
         }
 
         /// standard fmt function
@@ -214,10 +230,12 @@ pub fn WeakArc(comptime T: type) type {
         /// increases weak counter, returns weak reference, dereference with deref()
         pub fn ref(self: *const Self) WeakArc(T) {
             self.arc.rc.weak_count += 1;
+
+            return self.*;
         }
 
         pub fn deref(self: *const Self) void {
-            self.arc.rc.derefWeak();
+            self.arc.derefWeak();
         }
 
         pub fn isAlive(self: *const Self) bool {
@@ -412,5 +430,43 @@ test "WeakRc" {
     weak.deref();
 }
 test "WeakArc" {
-    //TODO
+    const testing = std.testing;
+
+    {
+        const ptr = try Arc(i32).init(testing.allocator, 0, .{});
+        defer ptr.deref();
+
+        const weak = ptr.weak();
+        defer weak.deref();
+
+        try testing.expectEqual(1, ptr.rc.strong_count);
+        try testing.expectEqual(1, ptr.rc.weak_count);
+
+        {
+            var weak2 = weak.ref();
+            defer weak2.deref();
+
+            try testing.expectEqual(2, ptr.rc.weak_count);
+        }
+        try testing.expectEqual(1, ptr.rc.weak_count);
+
+        const ptr_ref = weak.upgrade() orelse unreachable;
+        defer ptr_ref.deref();
+
+        try testing.expectEqual(2, ptr.rc.strong_count);
+        try testing.expectEqual(1, ptr.rc.weak_count);
+    }
+
+    const ptr = try Arc(i32).init(testing.allocator, 0, .{});
+    const weak = ptr.weak();
+
+    try testing.expectEqual(1, ptr.rc.weak_count);
+    try testing.expectEqual(1, ptr.rc.strong_count);
+    ptr.deref();
+    try testing.expectEqual(1, ptr.rc.weak_count);
+    try testing.expectEqual(0, ptr.rc.strong_count);
+
+    try testing.expect(weak.upgrade() == null);
+
+    weak.deref();
 }
