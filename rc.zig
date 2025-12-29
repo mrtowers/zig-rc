@@ -116,6 +116,8 @@ pub fn WeakRc(comptime T: type) type {
         /// increases weak counter, returns weak reference, dereference with deref()
         pub fn ref(self: *const Self) WeakRc(T) {
             self.rc.weak_count += 1;
+
+            return self;
         }
 
         pub fn deref(self: *const Self) void {
@@ -168,6 +170,7 @@ pub fn Arc(comptime T: type) type {
 
             if (rc_destroyed) {
                 allocator.destroy(self);
+                return;
             }
 
             self.lock.unlock();
@@ -188,6 +191,36 @@ pub fn Arc(comptime T: type) type {
             const allocator = self.rc.allocator;
             self.rc.deinit();
             allocator.destroy(self);
+        }
+    };
+}
+
+pub fn WeakArc(comptime T: type) type {
+    return struct {
+        arc: *Arc(T),
+
+        const Self = @This();
+
+        /// returns strong Arc reference, dereference with deref()
+        pub fn upgrade(self: *const Self) ?*Arc(T) {
+            if (self.isAlive()) {
+                return self.arc.ref();
+            }
+
+            return null;
+        }
+
+        /// increases weak counter, returns weak reference, dereference with deref()
+        pub fn ref(self: *const Self) WeakArc(T) {
+            self.arc.rc.weak_count += 1;
+        }
+
+        pub fn deref(self: *const Self) void {
+            self.arc.rc.derefWeak();
+        }
+
+        pub fn isAlive(self: *const Self) bool {
+            return self.arc.rc.strong_count > 0;
         }
     };
 }
@@ -241,24 +274,25 @@ test "auto_deinit" {
     ptr2.deref();
 }
 
-// test "Arc" {
-//     const testing = std.testing;
-//     var obj = try Arc(u8).init(testing.allocator, 4, .{});
-//     {
-//         var obj_list = try std.ArrayList(*Arc(u8)).initCapacity(testing.allocator, 0);
-//         defer {
-//             for (obj_list.items) |v| _ = v.deref();
-//             obj_list.deinit(testing.allocator);
-//         }
-//         try obj_list.append(testing.allocator, obj.ref());
-//         try obj_list.append(testing.allocator, try Arc(u8).init(testing.allocator, 7, .{}));
-//         try testing.expectEqual(obj.rc.strong_count, 2);
-//         try testing.expectEqual(obj_list.items[1].rc.strong_count, 1);
-//     }
-//     try testing.expectEqual(obj.rc.strong_count, 1);
-//     obj = try Arc(u8).init(testing.allocator, 5, .{});
-//     obj.deinit();
-// }
+test "Arc" {
+    const testing = std.testing;
+    var obj = try Arc(u8).init(testing.allocator, 4, .{});
+    {
+        var obj_list = try std.ArrayList(*Arc(u8)).initCapacity(testing.allocator, 0);
+        defer {
+            for (obj_list.items) |v| _ = v.deref();
+            obj_list.deinit(testing.allocator);
+        }
+        try obj_list.append(testing.allocator, obj.ref());
+        try obj_list.append(testing.allocator, try Arc(u8).init(testing.allocator, 7, .{}));
+        try testing.expectEqual(obj.rc.strong_count, 2);
+        try testing.expectEqual(obj_list.items[1].rc.strong_count, 1);
+    }
+    try testing.expectEqual(obj.rc.strong_count, 1);
+    obj.deref();
+    obj = try Arc(u8).init(testing.allocator, 5, .{});
+    obj.deinit();
+}
 
 test "deinit with return type" {
     const testing = std.testing;
@@ -335,6 +369,9 @@ test "format fn on Rc" {
 //     try testing.expectEqualSlices(u8, "Arc(rc.test.format fn on Arc.User): User(user123)", slice2);
 // }
 
-test "weakrc" {
+test "WeakRc" {
+    //TODO
+}
+test "WeakArc" {
     //TODO
 }
