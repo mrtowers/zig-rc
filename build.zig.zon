@@ -1,10 +1,11 @@
 .{
     .name = .zigrc,
-    .version = "0.3.0",
+    .version = "0.4.0",
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "rc.zig",
+        "LICENSE",
     },
     .fingerprint = 0xb74441c9b9523205,
 }
