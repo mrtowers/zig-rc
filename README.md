@@ -65,6 +65,34 @@ pub fn main() !void {
 }
 ```
 
+### Weak pointers
+```zig
+const std = @import("std");
+const rc = @import("rc");
+const Rc = rc.Rc;
+const WeakRc = rc.WeakRc;
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+
+    const ptr = try Rc(i32).init(gpa.allocator(), 5, .{});
+    defer ptr.deref();
+
+    usingWeak(ptr.weak());
+}
+
+fn usingWeak(weak: WeakRc(i32)) void {
+    defer weak.deref(); //deref every instance
+
+    if (weak.upgrade()) |number_ref| {
+        defer number_ref.deref();
+        std.debug.print("number is: {d}\n", .{number_ref.value.*});
+    }
+}
+
+```
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
