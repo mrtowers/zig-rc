@@ -11,6 +11,7 @@ A simple and efficient implementation of a reference counting smart pointer for 
 - **Thread-Safe**: Includes support for atomic reference counting for multithreaded applications via Arc.
 - **Lightweight**: Designed to be minimal and efficient.
 - **Auto deinit**: Rc and Arc support an optional auto_deinit mode. When enabled, the managed value is automatically deinitialized on the final destroy. If the wrapped type defines a deinit() method, it will be called before the memory is released.
+- **Weak Pointers**: Provide non-owning references to managed values without increasing the reference count. Weak pointers do not keep the value alive and can be safely upgraded to a strong `Rc`/`Arc` only if the value still exists. This helps prevent reference cycles and memory leaks, especially in graph-like data structures.
 
 ## Installation
 
