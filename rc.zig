@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
+const Io = std.Io;
 
 const Options = struct {
     /// automaticaly runs `deinit` method on underlying value
@@ -20,7 +21,7 @@ pub fn Rc(comptime T: type) type {
         const Self = @This();
 
         /// caller owns value and must free it with deref()
-        pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
+        pub fn init(allocator: Allocator, value: T, options: Options) Allocator.Error!*Self {
             const obj = try allocator.create(Self);
             const value_obj = try allocator.create(T);
             value_obj.* = value;
@@ -81,7 +82,7 @@ pub fn Rc(comptime T: type) type {
         }
 
         /// standard fmt function
-        pub fn format(self: *const Self, writer: *std.Io.Writer) !void {
+        pub fn format(self: *const Self, writer: *Io.Writer) Io.Writer.Error!void {
             if (std.meta.hasMethod(T, "format")) {
                 try writer.print("Rc({}): {f}", .{ T, self.value });
                 return;
@@ -144,7 +145,7 @@ pub fn Arc(comptime T: type) type {
         const Self = @This();
 
         /// caller owns value and must free it with deref()
-        pub fn init(allocator: Allocator, value: T, options: Options) !*Self {
+        pub fn init(allocator: Allocator, value: T, options: Options) Allocator.Error!*Self {
             const obj = try allocator.create(Self);
             obj.* = Self{
                 .rc = try Rc(T).init(allocator, value, options),
@@ -199,7 +200,7 @@ pub fn Arc(comptime T: type) type {
         }
 
         /// standard fmt function
-        pub fn format(self: *const Self, writer: *std.Io.Writer) !void {
+        pub fn format(self: *const Self, writer: *Io.Writer) Io.Writer.Error!void {
             if (std.meta.hasMethod(T, "format")) {
                 try writer.print("Arc({}): {f}", .{ T, self.rc.value });
                 return;
@@ -335,7 +336,7 @@ test "deinit with return type" {
 
 test "format fn on Rc" {
     const testing = std.testing;
-    var writer = std.Io.Writer.Allocating.init(testing.allocator);
+    var writer = Io.Writer.Allocating.init(testing.allocator);
 
     const ptr = try Rc(i32).init(testing.allocator, 13, .{});
     defer _ = ptr.deref();
@@ -349,7 +350,7 @@ test "format fn on Rc" {
     const User = struct {
         name: []const u8,
 
-        pub fn format(self: *const @This(), w: *std.Io.Writer) !void {
+        pub fn format(self: *const @This(), w: *Io.Writer) !void {
             try w.print("User({s})", .{self.name});
         }
     };
@@ -366,7 +367,7 @@ test "format fn on Rc" {
 
 test "format fn on Arc" {
     const testing = std.testing;
-    var writer = std.Io.Writer.Allocating.init(testing.allocator);
+    var writer = Io.Writer.Allocating.init(testing.allocator);
 
     const ptr = try Arc(i32).init(testing.allocator, 13, .{});
     defer _ = ptr.deref();
@@ -380,7 +381,7 @@ test "format fn on Arc" {
     const User = struct {
         name: []const u8,
 
-        pub fn format(self: *const @This(), w: *std.Io.Writer) !void {
+        pub fn format(self: *const @This(), w: *Io.Writer) !void {
             try w.print("User({s})", .{self.name});
         }
     };
