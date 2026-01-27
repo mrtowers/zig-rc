@@ -102,7 +102,7 @@ This project is licensed under the MIT License. See the [LICENSE](./LICENSE) fil
 
 Contributions are welcome! Feel free to open issues or submit pull requests.
 
-Also you can donate me [here](https://buymeacoffee.com/mrtowers), this helps alot! (mainly becouse i drink a lot of coffee)
+Also you can donate me [here](https://buymeacoffee.com/mrtowers), this helps alot! (mainly because i drink a lot of coffee)
 
 Happy coding! 🎉
 
