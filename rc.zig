@@ -183,17 +183,23 @@ pub fn Arc(comptime T: type) type {
         }
 
         /// decreases weak count, destroys self on strong and weak count == 0
-        fn derefWeak(self: *Self) void {
+        fn derefWeak(self: *Self, io: Io) Io.Cancelable!void {
+            try self.mutex.lock(io);
+            const arc_dead = self.rc.strong_count <= 0 and self.rc.weak_count == 1;
             self.rc.weak_count -= 1;
-            if (self.rc.strong_count <= 0 and self.rc.weak_count <= 0) {
+            if (arc_dead) {
                 self.deinit();
+                return;
             }
+            self.mutex.unlock(io);
         }
 
         /// returns weak reference increasing weak count, dereference with deref()
-        pub fn weak(self: *Self) WeakArc(T) {
-            assert(self.rc.strong_count != 0);
+        pub fn weak(self: *Self, io: Io) Io.Cancelable!WeakArc(T) {
+            try self.mutex.lock(io);
+            defer self.mutex.unlock(io);
 
+            assert(self.rc.strong_count != 0);
             self.rc.weak_count += 1;
 
             return .{ .arc = self };
@@ -226,27 +232,37 @@ pub fn WeakArc(comptime T: type) type {
 
         /// returns strong Arc reference, dereference with deref()
         pub fn upgrade(self: *const Self, io: Io) Io.Cancelable!?*Arc(T) {
-            if (self.isAlive()) {
-                return self.arc.ref(io);
+            try self.arc.mutex.lock(io);
+            defer self.arc.mutex.unlock(io);
+
+            if (self.arc.rc.strong_count > 0) {
+                self.arc.rc.strong_count += 1;
+                return self.arc;
             }
 
             return null;
         }
 
         /// increases weak counter, returns weak reference, dereference with deref()
-        pub fn ref(self: *const Self) WeakArc(T) {
+        pub fn ref(self: *const Self, io: Io) Io.Cancelable!WeakArc(T) {
+            try self.arc.mutex.lock(io);
+            defer self.arc.mutex.unlock(io);
+
             self.arc.rc.weak_count += 1;
 
             return self.*;
         }
 
         /// decreases weak count, destroys object if strong and weak count == 0
-        pub fn deref(self: *const Self) void {
-            self.arc.derefWeak();
+        pub fn deref(self: *const Self, io: Io) Io.Cancelable!void {
+            try self.arc.derefWeak(io);
         }
 
         /// returns if pointer is alive or destroyed
-        pub fn isAlive(self: *const Self) bool {
+        pub fn isAlive(self: *const Self, io: Io) Io.Cancelable!bool {
+            try self.arc.mutex.lock(io);
+            defer self.arc.mutex.unlock(io);
+
             return self.arc.rc.strong_count > 0;
         }
     };
@@ -444,21 +460,21 @@ test "WeakArc" {
         const ptr = try Arc(i32).init(testing.allocator, 0, .{});
         defer ptr.deref(testing.io) catch unreachable;
 
-        const weak = ptr.weak();
-        defer weak.deref();
+        const weak = try ptr.weak(testing.io);
+        defer weak.deref(testing.io) catch unreachable;
 
         try testing.expectEqual(1, ptr.rc.strong_count);
         try testing.expectEqual(1, ptr.rc.weak_count);
 
         {
-            var weak2 = weak.ref();
-            defer weak2.deref();
+            var weak2 = try weak.ref(testing.io);
+            defer weak2.deref(testing.io) catch unreachable;
 
             try testing.expectEqual(2, ptr.rc.weak_count);
         }
         try testing.expectEqual(1, ptr.rc.weak_count);
 
-        const ptr_ref = weak.upgrade(testing.io) catch unreachable orelse unreachable;
+        const ptr_ref = try weak.upgrade(testing.io) orelse unreachable;
         defer ptr_ref.deref(testing.io) catch unreachable;
 
         try testing.expectEqual(2, ptr.rc.strong_count);
@@ -466,7 +482,7 @@ test "WeakArc" {
     }
 
     const ptr = try Arc(i32).init(testing.allocator, 0, .{});
-    const weak = ptr.weak();
+    const weak = try ptr.weak(testing.io);
 
     try testing.expectEqual(1, ptr.rc.weak_count);
     try testing.expectEqual(1, ptr.rc.strong_count);
@@ -474,7 +490,7 @@ test "WeakArc" {
     try testing.expectEqual(1, ptr.rc.weak_count);
     try testing.expectEqual(0, ptr.rc.strong_count);
 
-    try testing.expect(weak.upgrade(testing.io) catch unreachable == null);
+    try testing.expect(try weak.upgrade(testing.io) == null);
 
-    weak.deref();
+    try weak.deref(testing.io);
 }
