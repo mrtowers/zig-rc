@@ -1,17 +1,16 @@
-> [!WARNING]
-> **zig-rc** is still WIP. I'm still doing **breaking changes**
-
 # Reference Counting Smart Pointer for Zig
 
 A simple and efficient implementation of a reference counting smart pointer for Zig. This library helps manage the lifetime of heap-allocated objects by automatically tracking references and freeing memory when no references remain.
 
+Requires **Zig 0.16.0**.
+
 ## Features
 
 - **Automatic Memory Management**: Simplifies memory handling by automatically freeing unused resources.
-- **Thread-Safe**: Includes support for atomic reference counting for multithreaded applications via Arc.
+- **Thread-Safe**: Includes mutex-based reference counting for multithreaded applications via `Arc`.
 - **Lightweight**: Designed to be minimal and efficient.
-- **Auto deinit**: Rc and Arc support an optional auto_deinit mode. When enabled, the managed value is automatically deinitialized on the final destroy. If the wrapped type defines a deinit() method, it will be called before the memory is released.
-- **Weak Pointers**: Provide non-owning references to managed values without increasing the reference count. Weak pointers do not keep the value alive and can be safely upgraded to a strong `Rc`/`Arc` only if the value still exists. This helps prevent reference cycles and memory leaks, especially in graph-like data structures.
+- **Auto deinit**: `Rc` and `Arc` support an optional `auto_deinit` mode. When enabled, the managed value is automatically deinitialized on the final destroy. If the wrapped type defines a `deinit()` method (with any return type), it will be called before the memory is released.
+- **Weak Pointers** (`WeakRc` / `WeakArc`): Provide non-owning references to managed values without increasing the reference count. Weak pointers do not keep the value alive and can be safely upgraded to a strong `Rc`/`Arc` only if the value still exists. This helps prevent reference cycles and memory leaks, especially in graph-like data structures.
 
 ## Installation
 
@@ -66,7 +65,8 @@ pub fn main() !void {
 }
 ```
 
-### Weak pointers
+### Weak pointers with Rc
+
 ```zig
 const std = @import("std");
 const rc = @import("rc");
@@ -91,7 +91,36 @@ fn usingWeak(weak: WeakRc(i32)) void {
         std.debug.print("number is: {d}\n", .{number_ref.value.*});
     }
 }
+```
 
+### Weak pointers with Arc
+
+```zig
+const std = @import("std");
+const testing = std.testing;
+const rc = @import("rc");
+const Arc = rc.Arc;
+const WeakArc = rc.WeakArc;
+
+pub fn main(init: std.process.Init) !void {
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    const io = init.io;
+
+    const ptr = try Arc(i32).init(gpa.allocator(), 5, .{});
+    defer _ = ptr.deref(io);
+
+    usingWeak(ptr.weak(io), io);
+}
+
+fn usingWeak(weak: WeakArc(i32), io: std.Io) void {
+    defer weak.deref(io) catch unreachable;
+
+    if (try weak.upgrade(io)) |number_ref| {
+        defer _ = number_ref.deref(io);
+        std.debug.print("number is: {d}\n", .{number_ref.rc.value.*});
+    }
+}
 ```
 
 ## License
