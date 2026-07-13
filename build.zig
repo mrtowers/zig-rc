@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const required_zig_version = std.SemanticVersion.parse("0.15.0") catch unreachable;
+const required_zig_version = std.SemanticVersion.parse("0.16.0") catch unreachable;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -19,7 +19,6 @@ pub fn build(b: *std.Build) void {
 
     //steps
     const test_step = b.step("test", "run all unit tests");
-    const coverage_step = b.step("cov", "run the code coverage analysis");
 
     const rc_test = b.addTest(.{
         .name = "rc_test",
@@ -28,23 +27,28 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(rc_test).step);
 
-    const kcov_bin = b.findProgram(&.{"kcov"}, &.{ "/bin", "/usr/bin" }) catch |e| {
-        std.debug.panic("cannot find kcov binary: {}", .{e});
+    var found_kcov: bool = true;
+    const kcov_bin = b.findProgram(&.{"kcov"}, &.{ "/bin", "/usr/bin" }) catch blk: {
+        found_kcov = false;
+        break :blk &[0]u8{};
     };
 
-    const coverage_run = std.Build.Step.Run.create(b, "coverage");
-    coverage_run.addArg(kcov_bin);
-    coverage_run.addArg("--include-path=.");
+    if (found_kcov) {
+        const coverage_step = b.step("cov", "run the code coverage analysis");
+        const coverage_run = std.Build.Step.Run.create(b, "coverage");
+        coverage_run.addArg(kcov_bin);
+        coverage_run.addArg("--include-path=.");
 
-    const coverage_output_dir = coverage_run.addOutputDirectoryArg("cov");
-    coverage_run.addArtifactArg(rc_test);
+        const coverage_output_dir = coverage_run.addOutputDirectoryArg("cov");
+        coverage_run.addArtifactArg(rc_test);
 
-    const coverage_install_dir = b.addInstallDirectory(.{
-        .source_dir = coverage_output_dir,
-        .install_dir = .{ .custom = "coverage_out" },
-        .install_subdir = "",
-    });
-    coverage_step.dependOn(&coverage_install_dir.step);
+        const coverage_install_dir = b.addInstallDirectory(.{
+            .source_dir = coverage_output_dir,
+            .install_dir = .{ .custom = "coverage_out" },
+            .install_subdir = "",
+        });
+        coverage_step.dependOn(&coverage_install_dir.step);
+    }
 }
 
 fn versionEql(lhs: std.SemanticVersion, rhs: std.SemanticVersion) bool {

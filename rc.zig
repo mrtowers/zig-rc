@@ -139,7 +139,7 @@ pub fn WeakRc(comptime T: type) type {
 /// Atomic Rc
 pub fn Arc(comptime T: type) type {
     return struct {
-        lock: std.Thread.Mutex = .{},
+        mutex: std.Io.Mutex = .init,
         rc: *Rc(T),
 
         const Self = @This();
@@ -155,17 +155,17 @@ pub fn Arc(comptime T: type) type {
         }
 
         /// use when adding to other struct or taking ownership, increments reference count
-        pub fn ref(self: *Self) *Self {
-            self.lock.lock();
-            defer self.lock.unlock();
+        pub fn ref(self: *Self, io: Io) Io.Cancelable!*Self {
+            try self.mutex.lock(io);
+            defer self.mutex.unlock(io);
 
             _ = self.rc.ref();
             return self;
         }
 
         /// use when droping ownership, decreases reference counting, frees data when refs == 0
-        pub fn deref(self: *Self) void {
-            self.lock.lock();
+        pub fn deref(self: *Self, io: Io) Io.Cancelable!void {
+            try self.mutex.lock(io);
             assert(self.rc.strong_count != 0);
 
             const allocator = self.rc.allocator;
@@ -179,24 +179,30 @@ pub fn Arc(comptime T: type) type {
                 return;
             }
 
-            self.lock.unlock();
+            self.mutex.unlock(io);
         }
 
         /// decreases weak count, destroys self on strong and weak count == 0
-        fn derefWeak(self: *Self) void {
+        fn derefWeak(self: *Self, io: Io) Io.Cancelable!void {
+            try self.mutex.lock(io);
+            const arc_dead = self.rc.strong_count <= 0 and self.rc.weak_count == 1;
             self.rc.weak_count -= 1;
-            if (self.rc.strong_count <= 0 and self.rc.weak_count <= 0) {
+            if (arc_dead) {
                 self.deinit();
+                return;
             }
+            self.mutex.unlock(io);
         }
 
         /// returns weak reference increasing weak count, dereference with deref()
-        pub fn weak(self: *Self) WeakArc(T) {
-            assert(self.rc.strong_count != 0);
+        pub fn weak(self: *Self, io: Io) Io.Cancelable!WeakArc(T) {
+            try self.mutex.lock(io);
+            defer self.mutex.unlock(io);
 
+            assert(self.rc.strong_count != 0);
             self.rc.weak_count += 1;
 
-            return WeakArc(T){ .arc = self };
+            return .{ .arc = self };
         }
 
         /// standard fmt function
@@ -209,8 +215,8 @@ pub fn Arc(comptime T: type) type {
             try writer.print("Arc({}): {any}", .{ T, self.rc.value.* });
         }
 
-        /// immediately frees object, not recommended, use deref() instead
-        pub fn deinit(self: *Self) void {
+        /// immediately frees object,
+        fn deinit(self: *Self) void {
             const allocator = self.rc.allocator;
             self.rc.deinit();
             allocator.destroy(self);
@@ -225,28 +231,38 @@ pub fn WeakArc(comptime T: type) type {
         const Self = @This();
 
         /// returns strong Arc reference, dereference with deref()
-        pub fn upgrade(self: *const Self) ?*Arc(T) {
-            if (self.isAlive()) {
-                return self.arc.ref();
+        pub fn upgrade(self: *const Self, io: Io) Io.Cancelable!?*Arc(T) {
+            try self.arc.mutex.lock(io);
+            defer self.arc.mutex.unlock(io);
+
+            if (self.arc.rc.strong_count > 0) {
+                self.arc.rc.strong_count += 1;
+                return self.arc;
             }
 
             return null;
         }
 
         /// increases weak counter, returns weak reference, dereference with deref()
-        pub fn ref(self: *const Self) WeakArc(T) {
+        pub fn ref(self: *const Self, io: Io) Io.Cancelable!WeakArc(T) {
+            try self.arc.mutex.lock(io);
+            defer self.arc.mutex.unlock(io);
+
             self.arc.rc.weak_count += 1;
 
             return self.*;
         }
 
         /// decreases weak count, destroys object if strong and weak count == 0
-        pub fn deref(self: *const Self) void {
-            self.arc.derefWeak();
+        pub fn deref(self: *const Self, io: Io) Io.Cancelable!void {
+            try self.arc.derefWeak(io);
         }
 
         /// returns if pointer is alive or destroyed
-        pub fn isAlive(self: *const Self) bool {
+        pub fn isAlive(self: *const Self, io: Io) Io.Cancelable!bool {
+            try self.arc.mutex.lock(io);
+            defer self.arc.mutex.unlock(io);
+
             return self.arc.rc.strong_count > 0;
         }
     };
@@ -307,16 +323,16 @@ test "Arc" {
     {
         var obj_list = try std.ArrayList(*Arc(u8)).initCapacity(testing.allocator, 0);
         defer {
-            for (obj_list.items) |v| _ = v.deref();
+            for (obj_list.items) |v| _ = v.deref(testing.io) catch unreachable;
             obj_list.deinit(testing.allocator);
         }
-        try obj_list.append(testing.allocator, obj.ref());
+        try obj_list.append(testing.allocator, try obj.ref(testing.io));
         try obj_list.append(testing.allocator, try Arc(u8).init(testing.allocator, 7, .{}));
         try testing.expectEqual(obj.rc.strong_count, 2);
         try testing.expectEqual(obj_list.items[1].rc.strong_count, 1);
     }
     try testing.expectEqual(obj.rc.strong_count, 1);
-    obj.deref();
+    try obj.deref(testing.io);
     obj = try Arc(u8).init(testing.allocator, 5, .{});
     obj.deinit();
 }
@@ -370,7 +386,7 @@ test "format fn on Arc" {
     var writer = Io.Writer.Allocating.init(testing.allocator);
 
     const ptr = try Arc(i32).init(testing.allocator, 13, .{});
-    defer _ = ptr.deref();
+    defer _ = ptr.deref(testing.io) catch unreachable;
 
     try writer.writer.print("{f}", .{ptr});
 
@@ -387,7 +403,7 @@ test "format fn on Arc" {
     };
 
     const ptr2 = try Arc(User).init(testing.allocator, .{ .name = "user123" }, .{});
-    defer _ = ptr2.deref();
+    defer _ = ptr2.deref(testing.io) catch unreachable;
 
     try writer.writer.print("{f}", .{ptr2});
 
@@ -442,39 +458,39 @@ test "WeakArc" {
 
     {
         const ptr = try Arc(i32).init(testing.allocator, 0, .{});
-        defer ptr.deref();
+        defer ptr.deref(testing.io) catch unreachable;
 
-        const weak = ptr.weak();
-        defer weak.deref();
+        const weak = try ptr.weak(testing.io);
+        defer weak.deref(testing.io) catch unreachable;
 
         try testing.expectEqual(1, ptr.rc.strong_count);
         try testing.expectEqual(1, ptr.rc.weak_count);
 
         {
-            var weak2 = weak.ref();
-            defer weak2.deref();
+            var weak2 = try weak.ref(testing.io);
+            defer weak2.deref(testing.io) catch unreachable;
 
             try testing.expectEqual(2, ptr.rc.weak_count);
         }
         try testing.expectEqual(1, ptr.rc.weak_count);
 
-        const ptr_ref = weak.upgrade() orelse unreachable;
-        defer ptr_ref.deref();
+        const ptr_ref = try weak.upgrade(testing.io) orelse unreachable;
+        defer ptr_ref.deref(testing.io) catch unreachable;
 
         try testing.expectEqual(2, ptr.rc.strong_count);
         try testing.expectEqual(1, ptr.rc.weak_count);
     }
 
     const ptr = try Arc(i32).init(testing.allocator, 0, .{});
-    const weak = ptr.weak();
+    const weak = try ptr.weak(testing.io);
 
     try testing.expectEqual(1, ptr.rc.weak_count);
     try testing.expectEqual(1, ptr.rc.strong_count);
-    ptr.deref();
+    try ptr.deref(testing.io);
     try testing.expectEqual(1, ptr.rc.weak_count);
     try testing.expectEqual(0, ptr.rc.strong_count);
 
-    try testing.expect(weak.upgrade() == null);
+    try testing.expect(try weak.upgrade(testing.io) == null);
 
-    weak.deref();
+    try weak.deref(testing.io);
 }
